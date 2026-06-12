@@ -9,6 +9,9 @@ const GRID_W = 44, GRID_H = 26;
 const TICK_MS = 160;
 const START_LEN = 4;
 const MAX_POOPS = 12;
+const MAX_BOMBS = 3;
+const BOMB_SPRAY = 10;       // diarrhea poops per explosion
+const BOMB_RADIUS = 4;
 const RESPAWN_MS = 3000;
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/manifest+json' };
@@ -28,7 +31,8 @@ const server = http.createServer((req, res) => {
 const wss = new WebSocketServer({ server });
 
 const players = new Map(); // id -> player
-let poops = [];
+let poops = [];   // [x, y, type] type 0=normal 1=diarrhea
+let bombs = [];
 let nextId = 1;
 
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
@@ -44,11 +48,31 @@ function occupiedCells() {
   return set;
 }
 
+function cellFree(x, y, occ) {
+  return !occ.has(x + ',' + y) && !poops.some(p => p[0] === x && p[1] === y) && !bombs.some(b => b[0] === x && b[1] === y);
+}
 function spawnPoop() {
   const occ = occupiedCells();
   for (let i = 0; i < 50; i++) {
     const [x, y] = randCell();
-    if (!occ.has(x + ',' + y) && !poops.some(p => p[0] === x && p[1] === y)) { poops.push([x, y]); return; }
+    if (cellFree(x, y, occ)) { poops.push([x, y, 0]); return; }
+  }
+}
+function spawnBomb() {
+  const occ = occupiedCells();
+  for (let i = 0; i < 50; i++) {
+    const [x, y] = randCell();
+    if (cellFree(x, y, occ)) { bombs.push([x, y]); return; }
+  }
+}
+function explode(bx, by) {
+  const occ = occupiedCells();
+  let added = 0, tries = 0;
+  while (added < BOMB_SPRAY && tries < 200) {
+    tries++;
+    const x = (bx + Math.floor(Math.random() * (BOMB_RADIUS * 2 + 1)) - BOMB_RADIUS + GRID_W) % GRID_W;
+    const y = (by + Math.floor(Math.random() * (BOMB_RADIUS * 2 + 1)) - BOMB_RADIUS + GRID_H) % GRID_H;
+    if (cellFree(x, y, occ)) { poops.push([x, y, 1]); added++; }
   }
 }
 
@@ -96,8 +120,10 @@ wss.on('connection', (ws) => {
 });
 
 function tick() {
-  // maintain poops
+  // maintain poops & bombs
   while (poops.length < MAX_POOPS) spawnPoop();
+  while (bombs.length < MAX_BOMBS) spawnBomb();
+  const booms = [];
 
   const alive = [...players.values()].filter(p => p.alive);
 
@@ -118,6 +144,12 @@ function tick() {
     const [nx, ny] = newHeads.get(p.id);
     const idx = poops.findIndex(q => q[0] === nx && q[1] === ny);
     if (idx >= 0) { poops.splice(idx, 1); grew.add(p.id); p.score++; }
+    const bidx = bombs.findIndex(b => b[0] === nx && b[1] === ny);
+    if (bidx >= 0) {
+      const [bx, by] = bombs.splice(bidx, 1)[0];
+      booms.push([bx, by]);
+      explode(bx, by);
+    }
   }
 
   // apply movement
@@ -143,8 +175,8 @@ function tick() {
   for (const p of new Set(dead)) {
     p.alive = false;
     // drop some poops where it died
-    for (let i = 0; i < p.body.length; i += 3) poops.push([p.body[i][0], p.body[i][1]]);
-    poops = poops.slice(0, 40);
+    for (let i = 0; i < p.body.length; i += 3) poops.push([p.body[i][0], p.body[i][1], 0]);
+    poops = poops.slice(0, 60);
     const me = p;
     if (me.ws.readyState === 1) me.ws.send(JSON.stringify({ type: 'dead', score: me.score }));
     setTimeout(() => { if (players.has(me.id) && me.joined) { me.score = 0; spawnSnake(me); } }, RESPAWN_MS);
@@ -154,6 +186,8 @@ function tick() {
   const state = {
     type: 'state',
     poops,
+    bombs,
+    booms,
     players: [...players.values()].filter(p => p.joined).map(p => ({
       id: p.id, name: p.name, avatar: p.avatar, color: p.color, alive: p.alive, score: p.score, body: p.body, dir: p.dir
     }))
