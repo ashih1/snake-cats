@@ -4,7 +4,7 @@
   "description": "多人連線 pixel 貪吃貓遊戲",
   "start_url": "/",
   "display": "fullscreen",
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#fdeef5",
   "theme_color": "#e9e4fb",
   "icons": [

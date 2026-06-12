@@ -32,30 +32,33 @@
     font-family:inherit; font-size:15px; padding:12px 18px; border-radius:14px; border:3px solid #e3cdf0;
     background:#fffafc; color:#8a6fb0; outline:none; text-align:center; width:min(280px,80vw);
   }
-  button#play {
+  .modeBtn {
     font-family:inherit; font-size:16px; padding:14px 38px; border-radius:16px; border:none; cursor:pointer;
     background:linear-gradient(135deg,#f6c6d9,#c9b6f0); color:#fff; text-shadow:1px 1px 0 #b495cf;
     box-shadow:0 6px 0 #d8b9d9; transition:transform .1s;
   }
-  button#play:active { transform:translateY(4px); box-shadow:0 2px 0 #d8b9d9; }
+  .modeBtn:active { transform:translateY(4px); box-shadow:0 2px 0 #d8b9d9; }
   #hud { position:fixed; top:10px; left:12px; z-index:5; color:#9b7fc7; font-size:11px;
          background:rgba(255,250,253,.7); padding:10px 14px; border-radius:12px; line-height:1.9; display:none; }
   #deadmsg { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:8;
              color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
   .hidden { display:none !important; }
-  #joystick { position:fixed; z-index:7; width:140px; height:140px; display:none; pointer-events:none; }
-  #joyBase { position:absolute; inset:0; border-radius:50%;
-             background:rgba(255,255,255,.35); border:3px solid rgba(185,160,220,.5);
-             backdrop-filter:blur(2px); }
-  #joyKnob { position:absolute; width:56px; height:56px; left:42px; top:42px; border-radius:50%;
-             background:linear-gradient(135deg,#f6c6d9,#c9b6f0); box-shadow:0 3px 8px rgba(160,130,190,.4); }
+  .turnBtn { position:fixed; bottom:max(20px, env(safe-area-inset-bottom)); z-index:7; width:92px; height:92px;
+             border-radius:50%; display:none; align-items:center; justify-content:center;
+             font-size:40px; color:#fff; user-select:none; -webkit-user-select:none; touch-action:manipulation;
+             background:linear-gradient(135deg,#f6c6d9cc,#c9b6f0cc); box-shadow:0 4px 10px rgba(160,130,190,.4);
+             border:3px solid rgba(255,255,255,.6); }
+  #turnL { left:18px; }
+  #turnR { right:18px; }
+  .turnBtn:active { transform:scale(.92); }
+  #btnRow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
 <div id="hud"></div>
-<div id="joystick"><div id="joyBase"></div><div id="joyKnob"></div></div>
+<div id="turnL" class="turnBtn">⟲</div><div id="turnR" class="turnBtn">⟳</div>
 <div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
 
 <div id="overlay">
@@ -63,8 +66,11 @@
   <div class="sub">✦ 選一隻寶貝，去吃大便吧 ✦</div>
   <div id="avatars"></div>
   <input id="name" maxlength="12" placeholder="你的名字">
-  <button id="play">開 始 ♡</button>
-  <div class="sub">方向鍵 / WASD 移動 · 手機用滑的</div>
+  <div id="btnRow">
+    <button id="play" class="modeBtn">連線一起玩 ♡</button>
+    <button id="playSolo" class="modeBtn" style="background:linear-gradient(135deg,#aee3f0,#c9b6f0)">自己玩 ☆</button>
+  </div>
+  <div class="sub">電腦：方向鍵 / WASD · 手機：滑動或左右轉向鍵</div>
 </div>
 
 <script>
@@ -117,11 +123,51 @@ poopCanvas.width = poopCanvas.height = 8;
   const cols = { '5':'#c79a6b', '6':'#b07f50', '7':'#9a6b3f' };
   P.forEach((row, y) => [...row].forEach((ch, x) => { if (cols[ch]) { c.fillStyle = cols[ch]; c.fillRect(x, y, 1, 1); } }));
 })();
+// diarrhea splat sprite (runny poop puddle)
+const splatCanvas = document.createElement('canvas');
+splatCanvas.width = splatCanvas.height = 8;
+(() => {
+  const c = splatCanvas.getContext('2d');
+  const P = [
+    '........',
+    '....5...',
+    '...55...',
+    '..5665.5',
+    '5.66765.',
+    '.6677665',
+    '56777765',
+    '.5656565',
+  ];
+  const cols = { '5':'#d3a875', '6':'#bb8a55', '7':'#a07344' };
+  P.forEach((row, y) => [...row].forEach((ch, x) => { if (cols[ch]) { c.fillStyle = cols[ch]; c.fillRect(x, y, 1, 1); } }));
+})();
+// bomb sprite
+const bombCanvas = document.createElement('canvas');
+bombCanvas.width = bombCanvas.height = 8;
+(() => {
+  const c = bombCanvas.getContext('2d');
+  const P = [
+    '.....f..',
+    '....f...',
+    '...44...',
+    '..3333..',
+    '.333933.',
+    '.339933.',
+    '.333333.',
+    '..3333..',
+  ];
+  const cols = { '3':'#4a4458', '9':'#6e6584', '4':'#8d8499', 'f':'#f2a65a' };
+  P.forEach((row, y) => [...row].forEach((ch, x) => { if (cols[ch]) { c.fillStyle = cols[ch]; c.fillRect(x, y, 1, 1); } }));
+})();
 
 // ---- state ----
-let ws, myId = null, GRID_W = 64, GRID_H = 40;
+let ws, myId = null, GRID_W = 44, GRID_H = 26;
+let mode = null; // 'online' | 'solo'
+const isMobile = (('ontouchstart' in window) && Math.min(screen.width, screen.height) < 820) || location.search.includes('mobile=1');
+let camX = 22, camY = 13, camInit = false;
 let state = { players: [], poops: [] };
 const eatUntil = {}, lastFace = {}, lastLen = {};
+let effects = [], shakeUntil = 0;
 let sparkles = [];
 for (let i = 0; i < 40; i++) sparkles.push({ x: Math.random(), y: Math.random(), s: Math.random()*2+1, ph: Math.random()*6.28 });
 
@@ -130,16 +176,23 @@ function connect() {
   ws = new WebSocket(proto + location.host);
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.type === 'welcome') { myId = m.id; GRID_W = m.gridW; GRID_H = m.gridH; }
+    if (m.type === 'welcome') { if (mode !== 'solo') { myId = m.id; GRID_W = m.gridW; GRID_H = m.gridH; } }
     else if (m.type === 'state') {
+      if (mode === 'solo') return;
       state = m;
       const now = performance.now();
+      if (m.booms) for (const [bx, by] of m.booms) {
+        effects.push({ x: bx, y: by, start: now });
+        sfx.boom();
+        shakeUntil = now + 400;
+      }
       for (const p of m.players) {
         if (p.alive && lastLen[p.id] && p.body.length > lastLen[p.id]) eatUntil[p.id] = now + 450;
         lastLen[p.id] = p.alive ? p.body.length : 0;
       }
     }
     else if (m.type === 'dead') {
+      if (mode === 'solo') return;
       sfx.die();
       const dm = document.getElementById('deadmsg');
       dm.style.display = 'flex';
@@ -150,71 +203,123 @@ function connect() {
 }
 connect();
 
-document.getElementById('play').onclick = () => {
+function startGame(m) {
   initAudio();
   sfx.spawn();
+  mode = m;
   const name = document.getElementById('name').value.trim() || selected.label;
-  ws.send(JSON.stringify({ type: 'join', name, avatar: selected.key, color: selected.color }));
+  if (m === 'online') {
+    ws.send(JSON.stringify({ type: 'join', name, avatar: selected.key, color: selected.color }));
+  } else {
+    solo.start(name, selected.key, selected.color);
+  }
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('hud').style.display = 'block';
+  if (isMobile) {
+    document.getElementById('turnL').style.display = 'flex';
+    document.getElementById('turnR').style.display = 'flex';
+  }
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
+}
+document.getElementById('play').onclick = () => startGame('online');
+document.getElementById('playSolo').onclick = () => startGame('solo');
+
+// ---- solo (offline) engine: same rules, one player ----
+const solo = {
+  W: 30, H: 30, me: null, poops: [], bombs: [], timer: null,
+  start(name, avatar, color) {
+    GRID_W = this.W; GRID_H = this.H; myId = 1;
+    this.me = { id:1, name, avatar, color, alive:true, score:0, dir:'right', pending:'right',
+                body:[[8,15],[7,15],[6,15],[5,15]] };
+    this.poops = []; this.bombs = [];
+    clearInterval(this.timer);
+    this.timer = setInterval(() => this.tick(), 160);
+  },
+  free(x,y){ return !this.me.body.some(c=>c[0]===x&&c[1]===y) && !this.poops.some(p=>p[0]===x&&p[1]===y) && !this.bombs.some(b=>b[0]===x&&b[1]===y); },
+  rand(){ return [Math.floor(Math.random()*this.W), Math.floor(Math.random()*this.H)]; },
+  tick() {
+    const DIRS={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
+    while (this.poops.length < 8) { const [x,y]=this.rand(); if(this.free(x,y)) this.poops.push([x,y,0]); }
+    while (this.bombs.length < 2) { const [x,y]=this.rand(); if(this.free(x,y)) this.bombs.push([x,y]); }
+    const booms = [];
+    const m = this.me;
+    if (m.alive) {
+      m.dir = m.pending;
+      const [dx,dy]=DIRS[m.dir];
+      const nx=(m.body[0][0]+dx+this.W)%this.W, ny=(m.body[0][1]+dy+this.H)%this.H;
+      let grew=false;
+      const pi=this.poops.findIndex(p=>p[0]===nx&&p[1]===ny);
+      if(pi>=0){ this.poops.splice(pi,1); grew=true; m.score++; }
+      const bi=this.bombs.findIndex(b=>b[0]===nx&&b[1]===ny);
+      if(bi>=0){ const [bx,by]=this.bombs.splice(bi,1)[0]; booms.push([bx,by]);
+        let added=0,tr=0;
+        while(added<10&&tr<200){ tr++;
+          const x=(bx+Math.floor(Math.random()*9)-4+this.W)%this.W, y=(by+Math.floor(Math.random()*9)-4+this.H)%this.H;
+          if(this.free(x,y)){ this.poops.push([x,y,1]); added++; } } }
+      m.body.unshift([nx,ny]);
+      if(!grew) m.body.pop();
+      // self collision
+      for(let i=1;i<m.body.length;i++) if(m.body[i][0]===nx&&m.body[i][1]===ny){
+        m.alive=false;
+        sfx.die();
+        const dm=document.getElementById('deadmsg');
+        dm.style.display='flex';
+        setTimeout(()=>{ dm.style.display='none';
+          m.score=0; m.alive=true; m.dir=m.pending='right'; m.body=[[8,15],[7,15],[6,15],[5,15]]; }, 3000);
+        break;
+      }
+    }
+    state = { players:[{...m, body:m.body}], poops:this.poops, bombs:this.bombs, booms };
+    const now = performance.now();
+    for (const [bx,by] of booms){ effects.push({x:bx,y:by,start:now}); sfx.boom(); shakeUntil=now+400; }
+    if (lastLen[1] && m.alive && m.body.length > lastLen[1]) eatUntil[1]=now+450;
+    lastLen[1] = m.alive ? m.body.length : 0;
+  }
 };
 
 // ---- input ----
+function sendDirCmd(d) {
+  if (!d) return;
+  if (mode === 'solo') {
+    const OPP = { up:'down', down:'up', left:'right', right:'left' };
+    if (solo.me && solo.me.alive && d !== OPP[solo.me.dir]) { solo.me.pending = d; sfx.turn(); }
+  } else if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type:'dir', dir:d })); sfx.turn();
+  }
+}
+function myDir() {
+  if (mode === 'solo') return solo.me ? solo.me.dir : 'right';
+  const me = state.players.find(p => p.id === myId);
+  return me ? me.dir : 'right';
+}
 const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', s:'down', a:'left', d:'right' };
 addEventListener('keydown', e => {
-  const d = keyMap[e.key];
-  if (d && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type:'dir', dir:d })); sfx.turn(); e.preventDefault(); }
+  if (keyMap[e.key]) { sendDirCmd(keyMap[e.key]); e.preventDefault(); }
 });
-// ---- virtual joystick (appears where you touch) ----
-const joy = document.getElementById('joystick');
-const knob = document.getElementById('joyKnob');
-let joyTouchId = null, joyOrigin = null, lastJoyDir = null;
-const DEAD_ZONE = 18, KNOB_MAX = 45;
+// ---- mobile controls: swipe anywhere + relative turn buttons ----
+const CW = { up:'right', right:'down', down:'left', left:'up' };
+const CCW = { up:'left', left:'down', down:'right', right:'up' };
+function bindTurn(id, map) {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', e => { sendDirCmd(map[myDir()]); e.preventDefault(); e.stopPropagation(); }, { passive:false });
+}
+bindTurn('turnL', CCW);
+bindTurn('turnR', CW);
 
-function sendDir(dir) {
-  if (dir && dir !== lastJoyDir && ws && ws.readyState === 1) {
-    ws.send(JSON.stringify({ type:'dir', dir }));
-    sfx.turn();
-    lastJoyDir = dir;
-  }
-}
+let swipeStart = null;
 addEventListener('touchstart', e => {
-  if (document.getElementById('overlay').classList.contains('hidden') === false) return;
-  if (joyTouchId !== null) return;
-  const t = e.changedTouches[0];
-  joyTouchId = t.identifier;
-  joyOrigin = [t.clientX, t.clientY];
-  joy.style.left = (t.clientX - 70) + 'px';
-  joy.style.top = (t.clientY - 70) + 'px';
-  joy.style.display = 'block';
-  knob.style.left = '42px'; knob.style.top = '42px';
-  lastJoyDir = null;
-  e.preventDefault();
-}, { passive:false });
+  if (!document.getElementById('overlay').classList.contains('hidden')) return;
+  if (e.target.classList && e.target.classList.contains('turnBtn')) return;
+  swipeStart = [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
+}, { passive:true });
 addEventListener('touchmove', e => {
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyTouchId) continue;
-    let dx = t.clientX - joyOrigin[0], dy = t.clientY - joyOrigin[1];
-    const len = Math.hypot(dx, dy);
-    if (len > KNOB_MAX) { dx = dx / len * KNOB_MAX; dy = dy / len * KNOB_MAX; }
-    knob.style.left = (42 + dx) + 'px';
-    knob.style.top = (42 + dy) + 'px';
-    if (len > DEAD_ZONE) {
-      sendDir(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
-    }
-    e.preventDefault();
-  }
-}, { passive:false });
-function joyEnd(e) {
-  for (const t of e.changedTouches) {
-    if (t.identifier !== joyTouchId) continue;
-    joyTouchId = null; joyOrigin = null;
-    joy.style.display = 'none';
-  }
-}
-addEventListener('touchend', joyEnd);
-addEventListener('touchcancel', joyEnd);
+  if (!swipeStart) return;
+  const dx = e.changedTouches[0].clientX - swipeStart[0], dy = e.changedTouches[0].clientY - swipeStart[1];
+  if (Math.abs(dx) + Math.abs(dy) < 24) return;
+  sendDirCmd(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  swipeStart = null;  // one turn per swipe
+}, { passive:true });
+addEventListener('touchend', () => { swipeStart = null; });
 
 // ---- sound effects (Web Audio, synthesized cute bleeps) ----
 let actx = null;
@@ -238,6 +343,7 @@ const sfx = {
   die()   { tone(440, 0.5, 'sawtooth', 0.14, 0, 110); tone(330, 0.5, 'triangle', 0.1, 0.05, 82); }, // 💫 womp
   spawn() { tone(523, 0.1, 'sine', 0.14); tone(659, 0.1, 'sine', 0.14, 0.09); tone(784, 0.16, 'sine', 0.14, 0.18); }, // ✨ chime
   turn()  { tone(300, 0.04, 'sine', 0.05); },                                                    // soft tick
+  boom()  { tone(140, 0.5, 'sawtooth', 0.22, 0, 45); tone(90, 0.6, 'square', 0.18, 0.03, 35); tone(700, 0.15, 'square', 0.08, 0, 120); }, // 💥
 };
 // play eat/spawn by watching my own snake
 let prevLen = null, prevAlive = null;
@@ -258,8 +364,33 @@ function roundRect(x, y, w, h, r) {
 }
 function draw(t) {
   const W = canvas.width, H = canvas.height;
-  const cell = Math.min(W / GRID_W, H / GRID_H);
-  const ox = (W - cell * GRID_W) / 2, oy = (H - cell * GRID_H) / 2;
+  // camera mode on mobile: zoomed view following your animal
+  const camMode = isMobile && mode;
+  let cell, ox, oy;
+  const wrapD = (d, n) => ((d + n * 1.5) % n) - n / 2;
+  if (camMode) {
+    cell = Math.min(W, H) / 11;
+    const me = state.players.find(p => p.id === myId);
+    if (me && me.alive) {
+      const [hx, hy] = me.body[0];
+      if (!camInit) { camX = hx; camY = hy; camInit = true; }
+      camX = (camX + wrapD(hx - camX, GRID_W) * 0.15 + GRID_W) % GRID_W;
+      camY = (camY + wrapD(hy - camY, GRID_H) * 0.15 + GRID_H) % GRID_H;
+    }
+    ox = W / 2 - (camX + 0.5) * cell;
+    oy = H / 2 - (camY + 0.5) * cell;
+  } else {
+    cell = Math.min(W / GRID_W, H / GRID_H);
+    ox = (W - cell * GRID_W) / 2; oy = (H - cell * GRID_H) / 2;
+  }
+  // wrap helper: nearest world-copy of coordinate relative to camera
+  const wx = x => camMode ? camX + wrapD(x - camX, GRID_W) : x;
+  const wy = y => camMode ? camY + wrapD(y - camY, GRID_H) : y;
+  if (t < shakeUntil) {
+    const k = (shakeUntil - t) / 400 * cell * 0.35;
+    ox += (Math.random() - 0.5) * k * 2;
+    oy += (Math.random() - 0.5) * k * 2;
+  }
 
   // dreamy bg
   const g = ctx.createLinearGradient(0, 0, W, H);
@@ -275,14 +406,29 @@ function draw(t) {
 
   // faint grid
   ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
-  for (let x = 0; x <= GRID_W; x++) { ctx.beginPath(); ctx.moveTo(ox + x * cell, oy); ctx.lineTo(ox + x * cell, oy + GRID_H * cell); ctx.stroke(); }
-  for (let y = 0; y <= GRID_H; y++) { ctx.beginPath(); ctx.moveTo(ox, oy + y * cell); ctx.lineTo(ox + GRID_W * cell, oy + y * cell); ctx.stroke(); }
+  if (camMode) {
+    for (let px = ((ox % cell) + cell) % cell; px < W; px += cell) { ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke(); }
+    for (let py = ((oy % cell) + cell) % cell; py < H; py += cell) { ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke(); }
+  } else {
+    for (let x = 0; x <= GRID_W; x++) { ctx.beginPath(); ctx.moveTo(ox + x * cell, oy); ctx.lineTo(ox + x * cell, oy + GRID_H * cell); ctx.stroke(); }
+    for (let y = 0; y <= GRID_H; y++) { ctx.beginPath(); ctx.moveTo(ox, oy + y * cell); ctx.lineTo(ox + GRID_W * cell, oy + y * cell); ctx.stroke(); }
+  }
 
   ctx.imageSmoothingEnabled = false;
 
   // poops
-  for (const [x, y] of state.poops) {
-    ctx.drawImage(poopCanvas, ox + x * cell - cell*0.1, oy + y * cell - cell*0.1, cell*1.2, cell*1.2);
+  for (const p of state.poops) {
+    const spr = p[2] === 1 ? splatCanvas : poopCanvas;
+    ctx.drawImage(spr, ox + wx(p[0]) * cell - cell*0.1, oy + wy(p[1]) * cell - cell*0.1, cell*1.2, cell*1.2);
+  }
+  // bombs (with pulsing glow)
+  if (state.bombs) for (const [x, y] of state.bombs) {
+    const pulse = 0.5 + 0.5 * Math.sin(t / 200);
+    ctx.save();
+    ctx.shadowColor = 'rgba(255,120,80,' + (0.5 + 0.4 * pulse) + ')';
+    ctx.shadowBlur = 10 + 10 * pulse;
+    ctx.drawImage(bombCanvas, ox + wx(x) * cell - cell*0.15, oy + wy(y) * cell - cell*0.15, cell*1.3, cell*1.3);
+    ctx.restore();
   }
 
   // snakes
@@ -293,7 +439,7 @@ function draw(t) {
       const [x, y] = p.body[i];
       const shade = i % 2 ? p.color : p.color + 'cc';
       ctx.fillStyle = shade;
-      roundRect(ox + x * cell + cell*0.06, oy + y * cell + cell*0.06, cell*0.88, cell*0.88, cell*0.3);
+      roundRect(ox + wx(x) * cell + cell*0.06, oy + wy(y) * cell + cell*0.06, cell*0.88, cell*0.88, cell*0.3);
     }
     // head = animated full-body sprite
     const [hx, hy] = p.body[0];
@@ -306,7 +452,7 @@ function draw(t) {
     if (p.dir === 'right') lastFace[p.id] = -1;
     else if (p.dir === 'left') lastFace[p.id] = 1;
     const face = lastFace[p.id] || 1;
-    const cx = ox + hx * cell + cell / 2, cy = oy + hy * cell + cell / 2;
+    const cx = ox + wx(hx) * cell + cell / 2, cy = oy + wy(hy) * cell + cell / 2;
     ctx.save();
     ctx.shadowColor = p.color; ctx.shadowBlur = 12;
     ctx.translate(cx, cy);
@@ -318,6 +464,26 @@ function draw(t) {
     ctx.font = `${Math.max(11, cell*0.42)}px monospace`;
     ctx.textAlign = 'center';
     ctx.fillText(p.name, cx, cy - hs/2 - 6);
+  }
+
+  // explosion effects
+  effects = effects.filter(e => t - e.start < 700);
+  for (const e of effects) {
+    const pr = (t - e.start) / 700;
+    const cx2 = ox + wx(e.x) * cell + cell/2, cy2 = oy + wy(e.y) * cell + cell/2;
+    // expanding ring
+    ctx.strokeStyle = `rgba(255,150,90,${1 - pr})`;
+    ctx.lineWidth = cell * 0.25 * (1 - pr) + 1;
+    ctx.beginPath(); ctx.arc(cx2, cy2, pr * cell * 5, 0, 6.28); ctx.stroke();
+    // flying poop particles
+    for (let i = 0; i < 10; i++) {
+      const ang = i / 10 * 6.28 + e.x * 7 + e.y * 3;
+      const d = pr * cell * (3 + (i % 3));
+      const px = cx2 + Math.cos(ang) * d, py = cy2 + Math.sin(ang) * d - Math.sin(pr * Math.PI) * cell * 1.5;
+      ctx.globalAlpha = 1 - pr;
+      ctx.drawImage(splatCanvas, px - cell*0.3, py - cell*0.3, cell*0.6, cell*0.6);
+      ctx.globalAlpha = 1;
+    }
   }
 
   // hud scoreboard
