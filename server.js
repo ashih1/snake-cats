@@ -120,10 +120,14 @@ wss.on('connection', (ws) => {
 });
 
 function tick() {
+  // difficulty ramps with the current best score
+  const maxScore = Math.max(0, ...[...players.values()].filter(p => p.alive).map(p => p.score));
+  const maxBombs = Math.min(8, MAX_BOMBS + Math.floor(maxScore / 5));
   // maintain poops & bombs
   while (poops.length < MAX_POOPS) spawnPoop();
-  while (bombs.length < MAX_BOMBS) spawnBomb();
+  while (bombs.length < maxBombs) spawnBomb();
   const booms = [];
+  const bombDead = new Set();
 
   const alive = [...players.values()].filter(p => p.alive);
 
@@ -149,6 +153,7 @@ function tick() {
       const [bx, by] = bombs.splice(bidx, 1)[0];
       booms.push([bx, by]);
       explode(bx, by);
+      bombDead.add(p);   // 💥 touching a bomb = game over
     }
   }
 
@@ -172,6 +177,7 @@ function tick() {
       }
     }
   }
+  for (const p of bombDead) dead.push(p);
   for (const p of new Set(dead)) {
     p.alive = false;
     // drop some poops where it died
@@ -196,5 +202,12 @@ function tick() {
   for (const p of players.values()) if (p.ws.readyState === 1) p.ws.send(payload);
 }
 
-setInterval(tick, TICK_MS);
+// speed ramps up as the best score grows
+function loop() {
+  tick();
+  const maxScore = Math.max(0, ...[...players.values()].filter(p => p.alive).map(p => p.score));
+  const delay = Math.max(85, TICK_MS - maxScore * 4);
+  setTimeout(loop, delay);
+}
+loop();
 server.listen(PORT, () => console.log('貪吃貓 server on :' + PORT));
