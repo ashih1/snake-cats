@@ -43,14 +43,14 @@
   #deadmsg { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:8;
              color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
   .hidden { display:none !important; }
-  .turnBtn { position:fixed; bottom:max(20px, env(safe-area-inset-bottom)); z-index:7; width:92px; height:92px;
-             border-radius:50%; display:none; align-items:center; justify-content:center;
-             font-size:40px; color:#fff; user-select:none; -webkit-user-select:none; touch-action:manipulation;
-             background:linear-gradient(135deg,#f6c6d9cc,#c9b6f0cc); box-shadow:0 4px 10px rgba(160,130,190,.4);
-             border:3px solid rgba(255,255,255,.6); }
-  #turnL { left:18px; }
-  #turnR { right:18px; }
-  .turnBtn:active { transform:scale(.92); }
+  #dpad { position:fixed; right:14px; bottom:max(14px, env(safe-area-inset-bottom)); z-index:7;
+          display:none; grid-template-columns:repeat(3, 64px); grid-template-rows:repeat(3, 64px); gap:6px; }
+  .dbtn { border-radius:18px; display:flex; align-items:center; justify-content:center;
+          font-size:30px; color:#fff; user-select:none; -webkit-user-select:none; touch-action:manipulation;
+          background:linear-gradient(135deg,#f6c6d9cc,#c9b6f0cc); box-shadow:0 4px 8px rgba(160,130,190,.4);
+          border:3px solid rgba(255,255,255,.6); }
+  .dbtn:active { transform:scale(.9); }
+  #dUp { grid-area:1/2; } #dLeft { grid-area:2/1; } #dRight { grid-area:2/3; } #dDown { grid-area:3/2; }
   #btnRow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
 </style>
 </head>
@@ -58,7 +58,12 @@
 <canvas id="game"></canvas>
 
 <div id="hud"></div>
-<div id="turnL" class="turnBtn">⟲</div><div id="turnR" class="turnBtn">⟳</div>
+<div id="dpad">
+  <div id="dUp" class="dbtn">▲</div>
+  <div id="dLeft" class="dbtn">◀</div>
+  <div id="dRight" class="dbtn">▶</div>
+  <div id="dDown" class="dbtn">▼</div>
+</div>
 <div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
 
 <div id="overlay">
@@ -215,10 +220,7 @@ function startGame(m) {
   }
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('hud').style.display = 'block';
-  if (isMobile) {
-    document.getElementById('turnL').style.display = 'flex';
-    document.getElementById('turnR').style.display = 'flex';
-  }
+  if (isMobile) document.getElementById('dpad').style.display = 'grid';
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
 }
 document.getElementById('play').onclick = () => startGame('online');
@@ -228,26 +230,37 @@ document.getElementById('playSolo').onclick = () => startGame('solo');
 const solo = {
   W: 30, H: 30, me: null, poops: [], bombs: [], timer: null,
   start(name, avatar, color) {
+    // one fixed screen: grid fits the device aspect, ~13 cells on the short side
+    const aspect = innerWidth / innerHeight;
+    if (aspect < 1) { this.W = 13; this.H = Math.min(30, Math.round(13 / aspect)); }
+    else { this.H = 13; this.W = Math.min(30, Math.round(13 * aspect)); }
     GRID_W = this.W; GRID_H = this.H; myId = 1;
+    const sy = Math.floor(this.H / 2);
     this.me = { id:1, name, avatar, color, alive:true, score:0, dir:'right', pending:'right',
-                body:[[8,15],[7,15],[6,15],[5,15]] };
+                body:[[5,sy],[4,sy],[3,sy],[2,sy]] };
     this.poops = []; this.bombs = [];
-    clearInterval(this.timer);
-    this.timer = setInterval(() => this.tick(), 160);
+    clearTimeout(this.timer);
+    const loop = () => {
+      this.tick();
+      const delay = Math.max(85, 160 - this.me.score * 4);  // faster as you score
+      this.timer = setTimeout(loop, delay);
+    };
+    loop();
   },
   free(x,y){ return !this.me.body.some(c=>c[0]===x&&c[1]===y) && !this.poops.some(p=>p[0]===x&&p[1]===y) && !this.bombs.some(b=>b[0]===x&&b[1]===y); },
   rand(){ return [Math.floor(Math.random()*this.W), Math.floor(Math.random()*this.H)]; },
   tick() {
     const DIRS={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
+    const maxBombs = Math.min(6, 1 + Math.floor(this.me.score / 4)); // more bombs as you score
     while (this.poops.length < 8) { const [x,y]=this.rand(); if(this.free(x,y)) this.poops.push([x,y,0]); }
-    while (this.bombs.length < 2) { const [x,y]=this.rand(); if(this.free(x,y)) this.bombs.push([x,y]); }
+    while (this.bombs.length < maxBombs) { const [x,y]=this.rand(); if(this.free(x,y)) this.bombs.push([x,y]); }
     const booms = [];
     const m = this.me;
     if (m.alive) {
       m.dir = m.pending;
       const [dx,dy]=DIRS[m.dir];
       const nx=(m.body[0][0]+dx+this.W)%this.W, ny=(m.body[0][1]+dy+this.H)%this.H;
-      let grew=false;
+      let grew=false, died=false;
       const pi=this.poops.findIndex(p=>p[0]===nx&&p[1]===ny);
       if(pi>=0){ this.poops.splice(pi,1); grew=true; m.score++; }
       const bi=this.bombs.findIndex(b=>b[0]===nx&&b[1]===ny);
@@ -255,18 +268,22 @@ const solo = {
         let added=0,tr=0;
         while(added<10&&tr<200){ tr++;
           const x=(bx+Math.floor(Math.random()*9)-4+this.W)%this.W, y=(by+Math.floor(Math.random()*9)-4+this.H)%this.H;
-          if(this.free(x,y)){ this.poops.push([x,y,1]); added++; } } }
+          if(this.free(x,y)){ this.poops.push([x,y,1]); added++; } }
+        died=true;  // 💥 bomb = game over
+      }
       m.body.unshift([nx,ny]);
       if(!grew) m.body.pop();
       // self collision
-      for(let i=1;i<m.body.length;i++) if(m.body[i][0]===nx&&m.body[i][1]===ny){
+      if(!died) for(let i=1;i<m.body.length;i++) if(m.body[i][0]===nx&&m.body[i][1]===ny){ died=true; break; }
+      if(died){
         m.alive=false;
         sfx.die();
         const dm=document.getElementById('deadmsg');
         dm.style.display='flex';
+        const sy=Math.floor(this.H/2);
         setTimeout(()=>{ dm.style.display='none';
-          m.score=0; m.alive=true; m.dir=m.pending='right'; m.body=[[8,15],[7,15],[6,15],[5,15]]; }, 3000);
-        break;
+          m.score=0; m.alive=true; m.dir=m.pending='right'; m.body=[[5,sy],[4,sy],[3,sy],[2,sy]];
+          this.bombs=[]; }, 3000);
       }
     }
     state = { players:[{...m, body:m.body}], poops:this.poops, bombs:this.bombs, booms };
@@ -296,20 +313,17 @@ const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'r
 addEventListener('keydown', e => {
   if (keyMap[e.key]) { sendDirCmd(keyMap[e.key]); e.preventDefault(); }
 });
-// ---- mobile controls: swipe anywhere + relative turn buttons ----
-const CW = { up:'right', right:'down', down:'left', left:'up' };
-const CCW = { up:'left', left:'down', down:'right', right:'up' };
-function bindTurn(id, map) {
-  const el = document.getElementById(id);
-  el.addEventListener('touchstart', e => { sendDirCmd(map[myDir()]); e.preventDefault(); e.stopPropagation(); }, { passive:false });
+// ---- mobile controls: swipe anywhere + D-pad ----
+for (const [id, dir] of [['dUp','up'],['dDown','down'],['dLeft','left'],['dRight','right']]) {
+  document.getElementById(id).addEventListener('touchstart', e => {
+    sendDirCmd(dir); e.preventDefault(); e.stopPropagation();
+  }, { passive:false });
 }
-bindTurn('turnL', CCW);
-bindTurn('turnR', CW);
 
 let swipeStart = null;
 addEventListener('touchstart', e => {
   if (!document.getElementById('overlay').classList.contains('hidden')) return;
-  if (e.target.classList && e.target.classList.contains('turnBtn')) return;
+  if (e.target.classList && e.target.classList.contains('dbtn')) return;
   swipeStart = [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
 }, { passive:true });
 addEventListener('touchmove', e => {
@@ -365,7 +379,7 @@ function roundRect(x, y, w, h, r) {
 function draw(t) {
   const W = canvas.width, H = canvas.height;
   // camera mode on mobile: zoomed view following your animal
-  const camMode = isMobile && mode;
+  const camMode = false; // one fixed screen, no scrolling camera
   let cell, ox, oy;
   const wrapD = (d, n) => ((d + n * 1.5) % n) - n / 2;
   if (camMode) {
