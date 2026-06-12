@@ -5,7 +5,7 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
-const GRID_W = 64, GRID_H = 40;
+const GRID_W = 44, GRID_H = 26;
 const TICK_MS = 110;
 const START_LEN = 4;
 const MAX_POOPS = 12;
@@ -73,7 +73,7 @@ function spawnSnake(p) {
 
 wss.on('connection', (ws) => {
   const id = nextId++;
-  const p = { id, ws, name: '???', avatar: 'greycat', color: '#f6c6d9', body: [], dir: 'right', pendingDir: 'right', alive: false, score: 0, joined: false };
+  const p = { id, ws, name: '???', avatar: 'maru', color: '#f6c6d9', body: [], dir: 'right', pendingDir: 'right', alive: false, score: 0, joined: false };
   players.set(id, p);
   ws.send(JSON.stringify({ type: 'welcome', id, gridW: GRID_W, gridH: GRID_H }));
 
@@ -81,7 +81,7 @@ wss.on('connection', (ws) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'join') {
       p.name = String(msg.name || '貓貓').slice(0, 12);
-      p.avatar = String(msg.avatar || 'greycat');
+      p.avatar = String(msg.avatar || 'maru');
       p.color = String(msg.color || '#f6c6d9').slice(0, 9);
       p.joined = true;
       p.score = 0;
