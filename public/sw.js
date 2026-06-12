@@ -1,7 +1,9 @@
-const CACHE = 'snake-cats-v2';
+const CACHE = 'snake-cats-v3';
 const ASSETS = ['/', '/manifest.json', '/icon-192.png', '/icon-512.png',
-  '/avatars/greycat.png', '/avatars/chinchilla.png', '/avatars/tabby.png',
-  '/avatars/creamcat.png', '/avatars/puppy.png'];
+  '/avatars/maru.png', '/avatars/xiaoyu1.png', '/avatars/xiaoyu2.png',
+  '/avatars/abai.png', '/avatars/dian.png',
+  '/avatars/maru_sheet.png', '/avatars/xiaoyu1_sheet.png', '/avatars/xiaoyu2_sheet.png',
+  '/avatars/abai_sheet.png', '/avatars/dian_sheet.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

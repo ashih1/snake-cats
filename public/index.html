@@ -69,14 +69,18 @@
 
 <script>
 const AVATARS = [
-  { key:'greycat',    label:'灰灰', color:'#aebcf0' },
-  { key:'chinchilla', label:'金吉拉', color:'#f6d8b8' },
-  { key:'tabby',      label:'虎斑', color:'#cde8c0' },
-  { key:'creamcat',   label:'奶油', color:'#f9e3a8' },
-  { key:'puppy',      label:'狗狗', color:'#f6c6d9' },
+  { key:'maru',    label:'maru', color:'#e8cfa8' },
+  { key:'xiaoyu1', label:'小雨1', color:'#f9e3a8' },
+  { key:'xiaoyu2', label:'小雨2', color:'#c5cbe0' },
+  { key:'abai',    label:'阿拜', color:'#aecbf0' },
+  { key:'dian',    label:'點', color:'#f6c6d9' },
 ];
-const imgs = {};
-for (const a of AVATARS) { const im = new Image(); im.src = 'avatars/' + a.key + '.png'; imgs[a.key] = im; }
+const imgs = {}, sheets = {};
+for (const a of AVATARS) {
+  const im = new Image(); im.src = 'avatars/' + a.key + '.png'; imgs[a.key] = im;
+  const sh = new Image(); sh.src = 'avatars/' + a.key + '_sheet.png'; sheets[a.key] = sh;
+}
+const FR = 42; // sprite frame size in source pixels
 
 // ---- join UI ----
 let selected = AVATARS[0];
@@ -117,6 +121,7 @@ poopCanvas.width = poopCanvas.height = 8;
 // ---- state ----
 let ws, myId = null, GRID_W = 64, GRID_H = 40;
 let state = { players: [], poops: [] };
+const eatUntil = {}, lastFace = {}, lastLen = {};
 let sparkles = [];
 for (let i = 0; i < 40; i++) sparkles.push({ x: Math.random(), y: Math.random(), s: Math.random()*2+1, ph: Math.random()*6.28 });
 
@@ -126,7 +131,14 @@ function connect() {
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
     if (m.type === 'welcome') { myId = m.id; GRID_W = m.gridW; GRID_H = m.gridH; }
-    else if (m.type === 'state') state = m;
+    else if (m.type === 'state') {
+      state = m;
+      const now = performance.now();
+      for (const p of m.players) {
+        if (p.alive && lastLen[p.id] && p.body.length > lastLen[p.id]) eatUntil[p.id] = now + 450;
+        lastLen[p.id] = p.alive ? p.body.length : 0;
+      }
+    }
     else if (m.type === 'dead') {
       sfx.die();
       const dm = document.getElementById('deadmsg');
@@ -270,7 +282,7 @@ function draw(t) {
 
   // poops
   for (const [x, y] of state.poops) {
-    ctx.drawImage(poopCanvas, ox + x * cell + cell*0.08, oy + y * cell + cell*0.08, cell*0.84, cell*0.84);
+    ctx.drawImage(poopCanvas, ox + x * cell - cell*0.1, oy + y * cell - cell*0.1, cell*1.2, cell*1.2);
   }
 
   // snakes
@@ -283,19 +295,29 @@ function draw(t) {
       ctx.fillStyle = shade;
       roundRect(ox + x * cell + cell*0.06, oy + y * cell + cell*0.06, cell*0.88, cell*0.88, cell*0.3);
     }
-    // head = avatar
+    // head = animated full-body sprite
     const [hx, hy] = p.body[0];
-    const im = imgs[p.avatar];
-    const hs = cell * 1.5, off = (hs - cell) / 2;
+    const sh = sheets[p.avatar];
+    const hs = cell * 2.4, off = (hs - cell) / 2;
+    // frame: eat > walk cycle
+    let frame = (Math.floor(t / 180) % 2);            // 0/1 walking
+    if (eatUntil[p.id] && t < eatUntil[p.id]) frame = 2; // mouth open
+    // sprites face LEFT; flip when moving right (remember last horizontal dir)
+    if (p.dir === 'right') lastFace[p.id] = -1;
+    else if (p.dir === 'left') lastFace[p.id] = 1;
+    const face = lastFace[p.id] || 1;
+    const cx = ox + hx * cell + cell / 2, cy = oy + hy * cell + cell / 2;
     ctx.save();
     ctx.shadowColor = p.color; ctx.shadowBlur = 12;
-    if (im && im.complete) ctx.drawImage(im, ox + hx * cell - off, oy + hy * cell - off, hs, hs);
+    ctx.translate(cx, cy);
+    ctx.scale(face, 1);
+    if (sh && sh.complete) ctx.drawImage(sh, frame * FR, 0, FR, FR, -hs/2, -hs/2, hs, hs);
     ctx.restore();
     // name
     ctx.fillStyle = 'rgba(120,95,160,0.85)';
-    ctx.font = `${Math.max(10, cell*0.5)}px monospace`;
+    ctx.font = `${Math.max(11, cell*0.42)}px monospace`;
     ctx.textAlign = 'center';
-    ctx.fillText(p.name, ox + hx * cell + cell/2, oy + hy * cell - off - 6);
+    ctx.fillText(p.name, cx, cy - hs/2 - 6);
   }
 
   // hud scoreboard
