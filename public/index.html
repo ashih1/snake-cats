@@ -2,8 +2,15 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>貪吃貓 🐾</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#e9e4fb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="貪吃貓">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   * { margin:0; padding:0; box-sizing:border-box; }
   html,body { width:100%; height:100%; overflow:hidden; font-family:"Press Start 2P", ui-monospace, monospace; }
@@ -36,12 +43,19 @@
   #deadmsg { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:8;
              color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
   .hidden { display:none !important; }
+  #joystick { position:fixed; z-index:7; width:140px; height:140px; display:none; pointer-events:none; }
+  #joyBase { position:absolute; inset:0; border-radius:50%;
+             background:rgba(255,255,255,.35); border:3px solid rgba(185,160,220,.5);
+             backdrop-filter:blur(2px); }
+  #joyKnob { position:absolute; width:56px; height:56px; left:42px; top:42px; border-radius:50%;
+             background:linear-gradient(135deg,#f6c6d9,#c9b6f0); box-shadow:0 3px 8px rgba(160,130,190,.4); }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
 <div id="hud"></div>
+<div id="joystick"><div id="joyBase"></div><div id="joyKnob"></div></div>
 <div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
 
 <div id="overlay">
@@ -137,16 +151,57 @@ addEventListener('keydown', e => {
   const d = keyMap[e.key];
   if (d && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type:'dir', dir:d })); e.preventDefault(); }
 });
-let touchStart = null;
-addEventListener('touchstart', e => { touchStart = [e.touches[0].clientX, e.touches[0].clientY]; }, { passive:true });
-addEventListener('touchend', e => {
-  if (!touchStart) return;
-  const dx = e.changedTouches[0].clientX - touchStart[0], dy = e.changedTouches[0].clientY - touchStart[1];
-  if (Math.abs(dx) + Math.abs(dy) < 20) return;
-  const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type:'dir', dir }));
-  touchStart = null;
-}, { passive:true });
+// ---- virtual joystick (appears where you touch) ----
+const joy = document.getElementById('joystick');
+const knob = document.getElementById('joyKnob');
+let joyTouchId = null, joyOrigin = null, lastJoyDir = null;
+const DEAD_ZONE = 18, KNOB_MAX = 45;
+
+function sendDir(dir) {
+  if (dir && dir !== lastJoyDir && ws && ws.readyState === 1) {
+    ws.send(JSON.stringify({ type:'dir', dir }));
+    lastJoyDir = dir;
+  }
+}
+addEventListener('touchstart', e => {
+  if (document.getElementById('overlay').classList.contains('hidden') === false) return;
+  if (joyTouchId !== null) return;
+  const t = e.changedTouches[0];
+  joyTouchId = t.identifier;
+  joyOrigin = [t.clientX, t.clientY];
+  joy.style.left = (t.clientX - 70) + 'px';
+  joy.style.top = (t.clientY - 70) + 'px';
+  joy.style.display = 'block';
+  knob.style.left = '42px'; knob.style.top = '42px';
+  lastJoyDir = null;
+  e.preventDefault();
+}, { passive:false });
+addEventListener('touchmove', e => {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyTouchId) continue;
+    let dx = t.clientX - joyOrigin[0], dy = t.clientY - joyOrigin[1];
+    const len = Math.hypot(dx, dy);
+    if (len > KNOB_MAX) { dx = dx / len * KNOB_MAX; dy = dy / len * KNOB_MAX; }
+    knob.style.left = (42 + dx) + 'px';
+    knob.style.top = (42 + dy) + 'px';
+    if (len > DEAD_ZONE) {
+      sendDir(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+    }
+    e.preventDefault();
+  }
+}, { passive:false });
+function joyEnd(e) {
+  for (const t of e.changedTouches) {
+    if (t.identifier !== joyTouchId) continue;
+    joyTouchId = null; joyOrigin = null;
+    joy.style.display = 'none';
+  }
+}
+addEventListener('touchend', joyEnd);
+addEventListener('touchcancel', joyEnd);
+
+// ---- PWA ----
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
 
 // ---- render ----
 function roundRect(x, y, w, h, r) {

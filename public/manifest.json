@@ -1,0 +1,14 @@
+{
+  "name": "貪吃貓",
+  "short_name": "貪吃貓",
+  "description": "多人連線 pixel 貪吃貓遊戲",
+  "start_url": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#fdeef5",
+  "theme_color": "#e9e4fb",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
