@@ -1,0 +1,12 @@
+{
+  "name": "tan-chi-mao",
+  "version": "1.0.0",
+  "description": "貪吃貓 — multiplayer pastel snake game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
