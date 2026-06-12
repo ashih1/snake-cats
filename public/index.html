@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>貪吃貓 🐾</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; font-family:"Press Start 2P", ui-monospace, monospace; }
+  body { background:linear-gradient(160deg,#fdeef5 0%,#e8e3fb 40%,#dcf2f7 75%,#fdf3e0 100%); }
+  canvas { display:block; width:100vw; height:100vh; image-rendering:pixelated; }
+  #overlay {
+    position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(253,240,248,.82); backdrop-filter:blur(8px); z-index:10; gap:22px; text-align:center;
+  }
+  h1 { font-size:clamp(26px,5vw,52px); color:#9b7fc7; text-shadow:3px 3px 0 #f3d1e3; letter-spacing:4px; }
+  .sub { color:#b89cc8; font-size:clamp(11px,1.5vw,14px); }
+  #avatars { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  .av { width:84px; height:84px; border-radius:18px; border:4px solid transparent; cursor:pointer;
+        background:#fff8fc; padding:6px; transition:transform .15s; }
+  .av img { width:100%; height:100%; image-rendering:pixelated; border-radius:10px; }
+  .av:hover { transform:translateY(-4px) scale(1.06); }
+  .av.sel { border-color:#b5a1e8; box-shadow:0 0 18px #cdbcf2; }
+  input#name {
+    font-family:inherit; font-size:15px; padding:12px 18px; border-radius:14px; border:3px solid #e3cdf0;
+    background:#fffafc; color:#8a6fb0; outline:none; text-align:center; width:min(280px,80vw);
+  }
+  button#play {
+    font-family:inherit; font-size:16px; padding:14px 38px; border-radius:16px; border:none; cursor:pointer;
+    background:linear-gradient(135deg,#f6c6d9,#c9b6f0); color:#fff; text-shadow:1px 1px 0 #b495cf;
+    box-shadow:0 6px 0 #d8b9d9; transition:transform .1s;
+  }
+  button#play:active { transform:translateY(4px); box-shadow:0 2px 0 #d8b9d9; }
+  #hud { position:fixed; top:10px; left:12px; z-index:5; color:#9b7fc7; font-size:11px;
+         background:rgba(255,250,253,.7); padding:10px 14px; border-radius:12px; line-height:1.9; display:none; }
+  #deadmsg { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:8;
+             color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="hud"></div>
+<div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
+
+<div id="overlay">
+  <h1>貪吃貓</h1>
+  <div class="sub">✦ 選一隻寶貝，去吃大便吧 ✦</div>
+  <div id="avatars"></div>
+  <input id="name" maxlength="12" placeholder="你的名字">
+  <button id="play">開 始 ♡</button>
+  <div class="sub">方向鍵 / WASD 移動 · 手機用滑的</div>
+</div>
+
+<script>
+const AVATARS = [
+  { key:'greycat',    label:'灰灰', color:'#aebcf0' },
+  { key:'chinchilla', label:'金吉拉', color:'#f6d8b8' },
+  { key:'tabby',      label:'虎斑', color:'#cde8c0' },
+  { key:'creamcat',   label:'奶油', color:'#f9e3a8' },
+  { key:'puppy',      label:'狗狗', color:'#f6c6d9' },
+];
+const imgs = {};
+for (const a of AVATARS) { const im = new Image(); im.src = 'avatars/' + a.key + '.png'; imgs[a.key] = im; }
+
+// ---- join UI ----
+let selected = AVATARS[0];
+const avDiv = document.getElementById('avatars');
+AVATARS.forEach((a, i) => {
+  const d = document.createElement('div');
+  d.className = 'av' + (i === 0 ? ' sel' : '');
+  d.innerHTML = `<img src="avatars/${a.key}.png" title="${a.label}">`;
+  d.onclick = () => { document.querySelectorAll('.av').forEach(e => e.classList.remove('sel')); d.classList.add('sel'); selected = a; };
+  avDiv.appendChild(d);
+});
+
+// ---- canvas ----
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+function resize() { canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio; }
+addEventListener('resize', resize); resize();
+
+// pixel poop sprite
+const poopCanvas = document.createElement('canvas');
+poopCanvas.width = poopCanvas.height = 8;
+(() => {
+  const c = poopCanvas.getContext('2d');
+  const P = [
+    '........',
+    '...55...',
+    '...55...',
+    '..5665..',
+    '.566665.',
+    '.577775.',
+    '56777765',
+    '.555555.',
+  ];
+  const cols = { '5':'#c79a6b', '6':'#b07f50', '7':'#9a6b3f' };
+  P.forEach((row, y) => [...row].forEach((ch, x) => { if (cols[ch]) { c.fillStyle = cols[ch]; c.fillRect(x, y, 1, 1); } }));
+})();
+
+// ---- state ----
+let ws, myId = null, GRID_W = 64, GRID_H = 40;
+let state = { players: [], poops: [] };
+let sparkles = [];
+for (let i = 0; i < 40; i++) sparkles.push({ x: Math.random(), y: Math.random(), s: Math.random()*2+1, ph: Math.random()*6.28 });
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+  ws = new WebSocket(proto + location.host);
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'welcome') { myId = m.id; GRID_W = m.gridW; GRID_H = m.gridH; }
+    else if (m.type === 'state') state = m;
+    else if (m.type === 'dead') {
+      const dm = document.getElementById('deadmsg');
+      dm.style.display = 'flex';
+      setTimeout(() => dm.style.display = 'none', 3000);
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+connect();
+
+document.getElementById('play').onclick = () => {
+  const name = document.getElementById('name').value.trim() || selected.label;
+  ws.send(JSON.stringify({ type: 'join', name, avatar: selected.key, color: selected.color }));
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('hud').style.display = 'block';
+  if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
+};
+
+// ---- input ----
+const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', s:'down', a:'left', d:'right' };
+addEventListener('keydown', e => {
+  const d = keyMap[e.key];
+  if (d && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type:'dir', dir:d })); e.preventDefault(); }
+});
+let touchStart = null;
+addEventListener('touchstart', e => { touchStart = [e.touches[0].clientX, e.touches[0].clientY]; }, { passive:true });
+addEventListener('touchend', e => {
+  if (!touchStart) return;
+  const dx = e.changedTouches[0].clientX - touchStart[0], dy = e.changedTouches[0].clientY - touchStart[1];
+  if (Math.abs(dx) + Math.abs(dy) < 20) return;
+  const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type:'dir', dir }));
+  touchStart = null;
+}, { passive:true });
+
+// ---- render ----
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill();
+}
+function draw(t) {
+  const W = canvas.width, H = canvas.height;
+  const cell = Math.min(W / GRID_W, H / GRID_H);
+  const ox = (W - cell * GRID_W) / 2, oy = (H - cell * GRID_H) / 2;
+
+  // dreamy bg
+  const g = ctx.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#fdeef5'); g.addColorStop(.4, '#e9e4fb'); g.addColorStop(.75, '#ddf2f7'); g.addColorStop(1, '#fdf3e2');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  // sparkles
+  for (const s of sparkles) {
+    const a = 0.25 + 0.25 * Math.sin(t / 700 + s.ph);
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.beginPath(); ctx.arc(s.x * W, s.y * H, s.s * devicePixelRatio, 0, 6.28); ctx.fill();
+  }
+
+  // faint grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+  for (let x = 0; x <= GRID_W; x++) { ctx.beginPath(); ctx.moveTo(ox + x * cell, oy); ctx.lineTo(ox + x * cell, oy + GRID_H * cell); ctx.stroke(); }
+  for (let y = 0; y <= GRID_H; y++) { ctx.beginPath(); ctx.moveTo(ox, oy + y * cell); ctx.lineTo(ox + GRID_W * cell, oy + y * cell); ctx.stroke(); }
+
+  ctx.imageSmoothingEnabled = false;
+
+  // poops
+  for (const [x, y] of state.poops) {
+    ctx.drawImage(poopCanvas, ox + x * cell + cell*0.08, oy + y * cell + cell*0.08, cell*0.84, cell*0.84);
+  }
+
+  // snakes
+  for (const p of state.players) {
+    if (!p.alive) continue;
+    // body
+    for (let i = p.body.length - 1; i >= 1; i--) {
+      const [x, y] = p.body[i];
+      const shade = i % 2 ? p.color : p.color + 'cc';
+      ctx.fillStyle = shade;
+      roundRect(ox + x * cell + cell*0.06, oy + y * cell + cell*0.06, cell*0.88, cell*0.88, cell*0.3);
+    }
+    // head = avatar
+    const [hx, hy] = p.body[0];
+    const im = imgs[p.avatar];
+    const hs = cell * 1.5, off = (hs - cell) / 2;
+    ctx.save();
+    ctx.shadowColor = p.color; ctx.shadowBlur = 12;
+    if (im && im.complete) ctx.drawImage(im, ox + hx * cell - off, oy + hy * cell - off, hs, hs);
+    ctx.restore();
+    // name
+    ctx.fillStyle = 'rgba(120,95,160,0.85)';
+    ctx.font = `${Math.max(10, cell*0.5)}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(p.name, ox + hx * cell + cell/2, oy + hy * cell - off - 6);
+  }
+
+  // hud scoreboard
+  const hud = document.getElementById('hud');
+  if (hud.style.display === 'block') {
+    hud.innerHTML = '🏆 排行榜<br>' + state.players
+      .slice().sort((a, b) => b.score - a.score).slice(0, 6)
+      .map(p => `${p.alive ? '🐾' : '💀'} ${p.name}：${p.score}`).join('<br>');
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+</script>
+</body>
+</html>
