@@ -61,7 +61,7 @@
     <button id="play" class="modeBtn">連線一起玩 ♡</button>
     <button id="playSolo" class="modeBtn" style="background:linear-gradient(135deg,#aee3f0,#c9b6f0)">自己玩 ☆</button>
   </div>
-  <div class="sub">電腦：方向鍵 / WASD · 手機：滑動或左右轉向鍵</div>
+  <div class="sub">電腦：方向鍵 / WASD · 手機：點左半邊往左轉、右半邊往右轉</div>
 </div>
 
 <script>
@@ -206,6 +206,13 @@ function startGame(m) {
   }
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('hud').style.display = 'block';
+  if (isMobile) {
+    const h = document.createElement('div');
+    h.style.cssText = 'position:fixed;inset:0;z-index:6;pointer-events:none;display:flex;color:rgba(140,110,180,.55);font-size:22px;font-family:inherit;';
+    h.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center">⟲<br>點這半邊往左轉</div><div style="flex:1;display:flex;align-items:center;justify-content:center">⟳<br>點這半邊往右轉</div>';
+    document.body.appendChild(h);
+    setTimeout(() => h.remove(), 3500);
+  }
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
 }
 document.getElementById('play').onclick = () => startGame('online');
@@ -317,11 +324,11 @@ addEventListener('touchend', e => {
   if (!touchStart) return;
   const t = e.changedTouches[0];
   const moved = Math.abs(t.clientX - touchStart[0]) + Math.abs(t.clientY - touchStart[1]);
-  if (!swiped && moved < 15 && myHeadPx) {
-    // tap: turn toward where you tapped, relative to your animal
-    const dx = t.clientX * devicePixelRatio - myHeadPx[0];
-    const dy = t.clientY * devicePixelRatio - myHeadPx[1];
-    sendDirCmd(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  if (!swiped && moved < 15) {
+    // tap: left half of screen = turn left 90°, right half = turn right 90°
+    const CW  = { up:'right', right:'down', down:'left', left:'up' };
+    const CCW = { up:'left', left:'down', down:'right', right:'up' };
+    sendDirCmd(t.clientX < innerWidth / 2 ? CCW[myDir()] : CW[myDir()]);
   }
   touchStart = null;
 });
