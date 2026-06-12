@@ -128,6 +128,7 @@ function connect() {
     if (m.type === 'welcome') { myId = m.id; GRID_W = m.gridW; GRID_H = m.gridH; }
     else if (m.type === 'state') state = m;
     else if (m.type === 'dead') {
+      sfx.die();
       const dm = document.getElementById('deadmsg');
       dm.style.display = 'flex';
       setTimeout(() => dm.style.display = 'none', 3000);
@@ -138,6 +139,8 @@ function connect() {
 connect();
 
 document.getElementById('play').onclick = () => {
+  initAudio();
+  sfx.spawn();
   const name = document.getElementById('name').value.trim() || selected.label;
   ws.send(JSON.stringify({ type: 'join', name, avatar: selected.key, color: selected.color }));
   document.getElementById('overlay').classList.add('hidden');
@@ -149,7 +152,7 @@ document.getElementById('play').onclick = () => {
 const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'right', w:'up', s:'down', a:'left', d:'right' };
 addEventListener('keydown', e => {
   const d = keyMap[e.key];
-  if (d && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type:'dir', dir:d })); e.preventDefault(); }
+  if (d && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type:'dir', dir:d })); sfx.turn(); e.preventDefault(); }
 });
 // ---- virtual joystick (appears where you touch) ----
 const joy = document.getElementById('joystick');
@@ -160,6 +163,7 @@ const DEAD_ZONE = 18, KNOB_MAX = 45;
 function sendDir(dir) {
   if (dir && dir !== lastJoyDir && ws && ws.readyState === 1) {
     ws.send(JSON.stringify({ type:'dir', dir }));
+    sfx.turn();
     lastJoyDir = dir;
   }
 }
@@ -199,6 +203,39 @@ function joyEnd(e) {
 }
 addEventListener('touchend', joyEnd);
 addEventListener('touchcancel', joyEnd);
+
+// ---- sound effects (Web Audio, synthesized cute bleeps) ----
+let actx = null;
+function initAudio() {
+  if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+  if (actx.state === 'suspended') actx.resume();
+}
+function tone(freq, dur, type = 'sine', vol = 0.18, when = 0, slideTo = null) {
+  if (!actx) return;
+  const t0 = actx.currentTime + when;
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t0 + dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t0); o.stop(t0 + dur + 0.05);
+}
+const sfx = {
+  eat()   { tone(520, 0.09, 'square', 0.12); tone(780, 0.12, 'square', 0.12, 0.07); },          // ♪ nom
+  die()   { tone(440, 0.5, 'sawtooth', 0.14, 0, 110); tone(330, 0.5, 'triangle', 0.1, 0.05, 82); }, // 💫 womp
+  spawn() { tone(523, 0.1, 'sine', 0.14); tone(659, 0.1, 'sine', 0.14, 0.09); tone(784, 0.16, 'sine', 0.14, 0.18); }, // ✨ chime
+  turn()  { tone(300, 0.04, 'sine', 0.05); },                                                    // soft tick
+};
+// play eat/spawn by watching my own snake
+let prevLen = null, prevAlive = null;
+setInterval(() => {
+  const me = state.players.find(p => p.id === myId);
+  if (!me) return;
+  if (me.alive && prevAlive === true && prevLen !== null && me.body.length > prevLen) sfx.eat();
+  if (me.alive && prevAlive === false) sfx.spawn();
+  prevLen = me.body.length; prevAlive = me.alive;
+}, 60);
 
 // ---- PWA ----
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
