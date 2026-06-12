@@ -44,12 +44,25 @@
              color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
   .hidden { display:none !important; }
   #btnRow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
+  #ctrlBar { position:fixed; left:0; right:0; bottom:0; height:130px; z-index:7; display:none;
+             justify-content:space-between; align-items:center; padding:0 18px env(safe-area-inset-bottom);
+             background:rgba(255,250,253,.55); backdrop-filter:blur(6px); border-top:2px solid rgba(200,175,225,.35); }
+  .cgroup { display:flex; gap:14px; }
+  .cbtn { width:96px; height:96px; border-radius:24px; display:flex; align-items:center; justify-content:center;
+          font-size:38px; color:#fff; user-select:none; -webkit-user-select:none; touch-action:manipulation;
+          background:linear-gradient(135deg,#f6c6d9, #c9b6f0); box-shadow:0 4px 8px rgba(160,130,190,.35);
+          border:3px solid rgba(255,255,255,.65); }
+  .cbtn:active { transform:scale(.9); }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
 
 <div id="hud"></div>
+<div id="ctrlBar">
+  <div class="cgroup"><div class="cbtn" data-dir="up">▲</div><div class="cbtn" data-dir="down">▼</div></div>
+  <div class="cgroup"><div class="cbtn" data-dir="left">◀</div><div class="cbtn" data-dir="right">▶</div></div>
+</div>
 <div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
 
 <div id="overlay">
@@ -93,8 +106,16 @@ AVATARS.forEach((a, i) => {
 // ---- canvas ----
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-function resize() { canvas.width = innerWidth * devicePixelRatio; canvas.height = innerHeight * devicePixelRatio; }
-addEventListener('resize', resize); resize();
+function resize() {
+  // size canvas to the real visible viewport (fixes mobile URL-bar cropping)
+  canvas.style.width = innerWidth + 'px';
+  canvas.style.height = innerHeight + 'px';
+  canvas.width = innerWidth * devicePixelRatio;
+  canvas.height = innerHeight * devicePixelRatio;
+}
+addEventListener('resize', resize);
+if (window.visualViewport) visualViewport.addEventListener('resize', resize);
+resize();
 
 // pixel poop sprite
 const poopCanvas = document.createElement('canvas');
@@ -206,13 +227,7 @@ function startGame(m) {
   }
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('hud').style.display = 'block';
-  if (isMobile) {
-    const h = document.createElement('div');
-    h.style.cssText = 'position:fixed;inset:0;z-index:6;pointer-events:none;display:flex;color:rgba(140,110,180,.55);font-size:22px;font-family:inherit;';
-    h.innerHTML = '<div style="flex:1;display:flex;align-items:center;justify-content:center">⟲<br>點這半邊往左轉</div><div style="flex:1;display:flex;align-items:center;justify-content:center">⟳<br>點這半邊往右轉</div>';
-    document.body.appendChild(h);
-    setTimeout(() => h.remove(), 3500);
-  }
+  if (isMobile) document.getElementById('ctrlBar').style.display = 'flex';
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
 }
 document.getElementById('play').onclick = () => startGame('online');
@@ -223,8 +238,9 @@ const solo = {
   W: 30, H: 30, me: null, poops: [], bombs: [], timer: null,
   start(name, avatar, color) {
     // one fixed screen: grid fits the device aspect, ~13 cells on the short side
-    const aspect = innerWidth / innerHeight;
-    const S = isMobile ? 16 : 13;
+    const availH = isMobile ? innerHeight - 132 : innerHeight;  // exclude button bar
+    const aspect = innerWidth / availH;
+    const S = isMobile ? 18 : 13;
     if (aspect < 1) { this.W = S; this.H = Math.min(32, Math.round(S / aspect)); }
     else { this.H = S; this.W = Math.min(32, Math.round(S * aspect)); }
     GRID_W = this.W; GRID_H = this.H; myId = 1;
@@ -306,10 +322,16 @@ const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'r
 addEventListener('keydown', e => {
   if (keyMap[e.key]) { sendDirCmd(keyMap[e.key]); e.preventDefault(); }
 });
-// ---- mobile controls: tap relative to your animal to turn (swipe also works) ----
+// ---- mobile controls: button bar (▲▼ left side, ◀▶ right side) + swipe on the field ----
+for (const b of document.querySelectorAll('.cbtn')) {
+  b.addEventListener('touchstart', e => {
+    sendDirCmd(b.dataset.dir); e.preventDefault(); e.stopPropagation();
+  }, { passive:false });
+}
 let touchStart = null, swiped = false;
 addEventListener('touchstart', e => {
   if (!document.getElementById('overlay').classList.contains('hidden')) return;
+  if (e.target.classList && e.target.classList.contains('cbtn')) return;
   touchStart = [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
   swiped = false;
 }, { passive:true });
@@ -320,18 +342,7 @@ addEventListener('touchmove', e => {
   sendDirCmd(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
   swiped = true;  // one turn per swipe
 }, { passive:true });
-addEventListener('touchend', e => {
-  if (!touchStart) return;
-  const t = e.changedTouches[0];
-  const moved = Math.abs(t.clientX - touchStart[0]) + Math.abs(t.clientY - touchStart[1]);
-  if (!swiped && moved < 15) {
-    // tap: left half of screen = turn left 90°, right half = turn right 90°
-    const CW  = { up:'right', right:'down', down:'left', left:'up' };
-    const CCW = { up:'left', left:'down', down:'right', right:'up' };
-    sendDirCmd(t.clientX < innerWidth / 2 ? CCW[myDir()] : CW[myDir()]);
-  }
-  touchStart = null;
-});
+addEventListener('touchend', () => { touchStart = null; });
 
 // ---- sound effects (Web Audio, synthesized cute bleeps) ----
 let actx = null;
@@ -392,8 +403,10 @@ function draw(t) {
     ox = W / 2 - (camX + 0.5) * cell;
     oy = H / 2 - (camY + 0.5) * cell;
   } else {
-    cell = Math.min(W / GRID_W, H / GRID_H);
-    ox = (W - cell * GRID_W) / 2; oy = (H - cell * GRID_H) / 2;
+    // on mobile the bottom control bar is reserved — field never overlaps it
+    const barPx = (isMobile && mode) ? 132 * devicePixelRatio : 0;
+    cell = Math.min(W / GRID_W, (H - barPx) / GRID_H);
+    ox = (W - cell * GRID_W) / 2; oy = (H - barPx - cell * GRID_H) / 2;
   }
   // wrap helper: nearest world-copy of coordinate relative to camera
   const wx = x => camMode ? camX + wrapD(x - camX, GRID_W) : x;
@@ -456,7 +469,7 @@ function draw(t) {
     // head = animated full-body sprite
     const [hx, hy] = p.body[0];
     const sh = sheets[p.avatar];
-    const hs = cell * (isMobile ? 1.9 : 2.4), off = (hs - cell) / 2;
+    const hs = cell * (isMobile ? 1.6 : 2.4), off = (hs - cell) / 2;
     // frame: eat > walk cycle
     let frame = (Math.floor(t / 180) % 2);            // 0/1 walking
     if (eatUntil[p.id] && t < eatUntil[p.id]) frame = 2; // mouth open
