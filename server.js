@@ -6,7 +6,7 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 3000;
 const GRID_W = 44, GRID_H = 26;
-const TICK_MS = 110;
+const TICK_MS = 160;
 const START_LEN = 4;
 const MAX_POOPS = 12;
 const RESPAWN_MS = 3000;
