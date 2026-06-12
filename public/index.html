@@ -43,14 +43,6 @@
   #deadmsg { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:8;
              color:#c98bb1; font-size:clamp(16px,3vw,28px); text-shadow:2px 2px 0 #fff; flex-direction:column; gap:12px;}
   .hidden { display:none !important; }
-  #dpad { position:fixed; right:14px; bottom:max(14px, env(safe-area-inset-bottom)); z-index:7;
-          display:none; grid-template-columns:repeat(3, 64px); grid-template-rows:repeat(3, 64px); gap:6px; }
-  .dbtn { border-radius:18px; display:flex; align-items:center; justify-content:center;
-          font-size:30px; color:#fff; user-select:none; -webkit-user-select:none; touch-action:manipulation;
-          background:linear-gradient(135deg,#f6c6d9cc,#c9b6f0cc); box-shadow:0 4px 8px rgba(160,130,190,.4);
-          border:3px solid rgba(255,255,255,.6); }
-  .dbtn:active { transform:scale(.9); }
-  #dUp { grid-area:1/2; } #dLeft { grid-area:2/1; } #dRight { grid-area:2/3; } #dDown { grid-area:3/2; }
   #btnRow { display:flex; gap:14px; flex-wrap:wrap; justify-content:center; }
 </style>
 </head>
@@ -58,12 +50,6 @@
 <canvas id="game"></canvas>
 
 <div id="hud"></div>
-<div id="dpad">
-  <div id="dUp" class="dbtn">▲</div>
-  <div id="dLeft" class="dbtn">◀</div>
-  <div id="dRight" class="dbtn">▶</div>
-  <div id="dDown" class="dbtn">▼</div>
-</div>
 <div id="deadmsg"><div>💫 你死掉了…</div><div style="font-size:12px;color:#b89cc8">3 秒後重生</div></div>
 
 <div id="overlay">
@@ -172,7 +158,7 @@ const isMobile = (('ontouchstart' in window) && Math.min(screen.width, screen.he
 let camX = 22, camY = 13, camInit = false;
 let state = { players: [], poops: [] };
 const eatUntil = {}, lastFace = {}, lastLen = {};
-let effects = [], shakeUntil = 0;
+let effects = [], shakeUntil = 0, myHeadPx = null;
 let sparkles = [];
 for (let i = 0; i < 40; i++) sparkles.push({ x: Math.random(), y: Math.random(), s: Math.random()*2+1, ph: Math.random()*6.28 });
 
@@ -220,7 +206,6 @@ function startGame(m) {
   }
   document.getElementById('overlay').classList.add('hidden');
   document.getElementById('hud').style.display = 'block';
-  if (isMobile) document.getElementById('dpad').style.display = 'grid';
   if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});
 }
 document.getElementById('play').onclick = () => startGame('online');
@@ -232,8 +217,9 @@ const solo = {
   start(name, avatar, color) {
     // one fixed screen: grid fits the device aspect, ~13 cells on the short side
     const aspect = innerWidth / innerHeight;
-    if (aspect < 1) { this.W = 13; this.H = Math.min(30, Math.round(13 / aspect)); }
-    else { this.H = 13; this.W = Math.min(30, Math.round(13 * aspect)); }
+    const S = isMobile ? 16 : 13;
+    if (aspect < 1) { this.W = S; this.H = Math.min(32, Math.round(S / aspect)); }
+    else { this.H = S; this.W = Math.min(32, Math.round(S * aspect)); }
     GRID_W = this.W; GRID_H = this.H; myId = 1;
     const sy = Math.floor(this.H / 2);
     this.me = { id:1, name, avatar, color, alive:true, score:0, dir:'right', pending:'right',
@@ -313,27 +299,32 @@ const keyMap = { ArrowUp:'up', ArrowDown:'down', ArrowLeft:'left', ArrowRight:'r
 addEventListener('keydown', e => {
   if (keyMap[e.key]) { sendDirCmd(keyMap[e.key]); e.preventDefault(); }
 });
-// ---- mobile controls: swipe anywhere + D-pad ----
-for (const [id, dir] of [['dUp','up'],['dDown','down'],['dLeft','left'],['dRight','right']]) {
-  document.getElementById(id).addEventListener('touchstart', e => {
-    sendDirCmd(dir); e.preventDefault(); e.stopPropagation();
-  }, { passive:false });
-}
-
-let swipeStart = null;
+// ---- mobile controls: tap relative to your animal to turn (swipe also works) ----
+let touchStart = null, swiped = false;
 addEventListener('touchstart', e => {
   if (!document.getElementById('overlay').classList.contains('hidden')) return;
-  if (e.target.classList && e.target.classList.contains('dbtn')) return;
-  swipeStart = [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
+  touchStart = [e.changedTouches[0].clientX, e.changedTouches[0].clientY];
+  swiped = false;
 }, { passive:true });
 addEventListener('touchmove', e => {
-  if (!swipeStart) return;
-  const dx = e.changedTouches[0].clientX - swipeStart[0], dy = e.changedTouches[0].clientY - swipeStart[1];
+  if (!touchStart || swiped) return;
+  const dx = e.changedTouches[0].clientX - touchStart[0], dy = e.changedTouches[0].clientY - touchStart[1];
   if (Math.abs(dx) + Math.abs(dy) < 24) return;
   sendDirCmd(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
-  swipeStart = null;  // one turn per swipe
+  swiped = true;  // one turn per swipe
 }, { passive:true });
-addEventListener('touchend', () => { swipeStart = null; });
+addEventListener('touchend', e => {
+  if (!touchStart) return;
+  const t = e.changedTouches[0];
+  const moved = Math.abs(t.clientX - touchStart[0]) + Math.abs(t.clientY - touchStart[1]);
+  if (!swiped && moved < 15 && myHeadPx) {
+    // tap: turn toward where you tapped, relative to your animal
+    const dx = t.clientX * devicePixelRatio - myHeadPx[0];
+    const dy = t.clientY * devicePixelRatio - myHeadPx[1];
+    sendDirCmd(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'));
+  }
+  touchStart = null;
+});
 
 // ---- sound effects (Web Audio, synthesized cute bleeps) ----
 let actx = null;
@@ -458,7 +449,7 @@ function draw(t) {
     // head = animated full-body sprite
     const [hx, hy] = p.body[0];
     const sh = sheets[p.avatar];
-    const hs = cell * 2.4, off = (hs - cell) / 2;
+    const hs = cell * (isMobile ? 1.9 : 2.4), off = (hs - cell) / 2;
     // frame: eat > walk cycle
     let frame = (Math.floor(t / 180) % 2);            // 0/1 walking
     if (eatUntil[p.id] && t < eatUntil[p.id]) frame = 2; // mouth open
@@ -467,6 +458,7 @@ function draw(t) {
     else if (p.dir === 'left') lastFace[p.id] = 1;
     const face = lastFace[p.id] || 1;
     const cx = ox + wx(hx) * cell + cell / 2, cy = oy + wy(hy) * cell + cell / 2;
+    if (p.id === myId) myHeadPx = [cx, cy];
     ctx.save();
     ctx.shadowColor = p.color; ctx.shadowBlur = 12;
     ctx.translate(cx, cy);
